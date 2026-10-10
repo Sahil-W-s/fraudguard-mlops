@@ -14,3 +14,7 @@ env/
 # IDE
 .vscode/
 .idea/
+
+# MLflow local tracking data
+mlflow.db
+mlruns/

@@ -172,3 +172,59 @@ These results support the reduced model as a practical candidate. They do not es
 
 \- `scripts/evaluate\_feature\_shortlist.py`
 
+## Phase 3: Experiment Tracking and Model Selection
+
+### 1. Experiment Tracking with MLflow
+
+**Decision:** Use MLflow to track model experiments, parameters, evaluation metrics, artifacts, and registered model versions.
+
+**Rationale:** Centralized experiment tracking makes model comparisons reproducible and provides a record of model development.
+
+### 2. Chronological Train/Validation/Test Split
+
+**Decision:** Split the IEEE-CIS dataset chronologically into 70% training, 15% validation, and 15% testing.
+
+**Rationale:** Fraud patterns change over time. A chronological split better approximates the task of predicting future transactions than a random split.
+
+**Implementation:** Sort transactions by `TransactionDT` before splitting. Fit the feature pipeline using training data only.
+
+### 3. Compare Three Models
+
+**Decision:** Evaluate Logistic Regression, LightGBM, and Random Forest.
+
+**Rationale:**
+- **Logistic Regression:** Establishes a baseline and offers a simpler model for comparison.
+- **LightGBM:** Captures nonlinear relationships and feature interactions efficiently.
+- **Random Forest:** Provides an alternative tree-based model for comparison.
+
+### 4. Select Models Using Average Precision
+
+**Decision:** Select the winning model using validation average precision (AP).
+
+**Rationale:** Fraud is a minority class, so accuracy can be misleading. Average precision evaluates the precision-recall trade-off across classification thresholds.
+
+**Observed result:** LightGBM achieved the highest validation AP of `0.537374`, followed by Random Forest at `0.479839` and Logistic Regression at `0.367217`.
+
+### 5. Choose a Decision Threshold Using a Precision Constraint
+
+**Decision:** On the validation set, select the threshold that maximizes recall while maintaining precision of at least 0.80.
+
+**Rationale:** The constraint aims to limit false-positive alerts while identifying as many fraudulent transactions as possible.
+
+**Observed result:** The selected LightGBM threshold was approximately `0.9002603`, with validation precision of `0.800308` and recall of `0.341223`.
+
+**Limitation:** Test precision was `0.744853`, below the validation target. The threshold therefore does not guarantee 80% precision on future data and requires further evaluation before deployment.
+
+### 6. Register the Winning Model
+
+**Decision:** Register the selected model as `FraudGuardFraudDetector` and assign the `champion` alias to version 1.
+
+**Rationale:** A stable model name and alias provide a consistent reference for inference applications while allowing the underlying model version to change through controlled updates.
+
+### 7. Preserve Model Lineage
+
+**Decision:** Record the Git commit, worktree status, dataset DVC hashes, feature-list path, experiment run ID, model version, and evaluation metrics.
+
+**Rationale:** Lineage helps trace a registered model back to its data and training experiment.
+
+**Limitation:** The worktree was dirty during training. The recorded Git commit alone does not fully identify the exact source code used for the experiment.
