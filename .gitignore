@@ -18,3 +18,5 @@ env/
 # MLflow local tracking data
 mlflow.db
 mlruns/
+
+models/
