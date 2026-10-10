@@ -1,0 +1,22 @@
+﻿# API and model serving
+fastapi
+uvicorn[standard]
+pydantic
+
+# Experiment tracking and model registry
+mlflow
+
+# Machine learning and feature processing
+lightgbm
+scikit-learn
+pandas
+numpy
+joblib
+
+# Model explainability and monitoring
+shap
+prometheus-client
+
+# Testing
+pytest
+httpx
