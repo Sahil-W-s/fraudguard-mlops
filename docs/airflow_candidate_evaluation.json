@@ -1,0 +1,31 @@
+{
+  "experiment_name": "FraudGuard-Fraud-Detection",
+  "registered_model_name": "FraudGuardFraudDetector",
+  "registered_model_version": null,
+  "registered_model_alias": null,
+  "candidate_only": true,
+  "winning_model": "lightgbm",
+  "winning_run_id": "08f4612440cb4286bb6e6aac799f180b",
+  "validation_average_precision": 0.5463105509126899,
+  "validation_recall_at_precision_target": 0.3586456278763971,
+  "decision_threshold": 0.8864977431247076,
+  "precision_target": 0.8,
+  "test_metrics": {
+    "average_precision": 0.49238001043393026,
+    "roc_auc": 0.8968195946821024,
+    "log_loss": 0.23280210855333172,
+    "precision": 0.7124137931034483,
+    "recall": 0.33506325008108984,
+    "f1": 0.4557688065298919,
+    "accuracy": 0.9721497838136847
+  },
+  "lineage": {
+    "git_commit": "2dde4e563c2d0643667dbb7990355f3223fadd6a",
+    "git_worktree_dirty": true,
+    "transaction_dvc_md5": "58b4038d8715f5e11007b826bef00ce7",
+    "identity_dvc_md5": "8487db5001c8bad139f3318d5d3db416",
+    "dataset": "IEEE-CIS Fraud Detection",
+    "split_strategy": "chronological_70_15_15",
+    "feature_list": "docs/validated_selected_features.csv"
+  }
+}

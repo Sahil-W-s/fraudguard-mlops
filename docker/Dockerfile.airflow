@@ -1,0 +1,21 @@
+﻿FROM apache/airflow:2.10.5-python3.11
+
+USER root
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libgomp1 \
+        git \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+USER airflow
+
+COPY requirements-airflow.txt /requirements-airflow.txt
+
+RUN python -c "import urllib.request; urllib.request.urlretrieve('https://raw.githubusercontent.com/apache/airflow/constraints-2.10.5/constraints-3.11.txt', '/tmp/airflow-constraints.txt')" \
+    && python -c "from pathlib import Path; p=Path('/tmp/airflow-constraints.txt'); s=p.read_text(); s=s.replace('cryptography==42.0.8', 'cryptography==44.0.3'); p.write_text(s); assert 'cryptography==44.0.3' in s; assert 'cryptography==42.0.8' not in s" \
+    && python -m pip install --no-cache-dir \
+        --constraint /tmp/airflow-constraints.txt \
+        -r /requirements-airflow.txt \
+    && rm /tmp/airflow-constraints.txt

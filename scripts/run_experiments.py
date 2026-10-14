@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+import os
 import json
 import logging
 import subprocess
@@ -53,7 +53,10 @@ ROOT = Path(__file__).resolve().parents[1]
 DOCS_DIR = ROOT / "docs"
 MODELS_DIR = ROOT / "models"
 
-TRACKING_URI = "http://127.0.0.1:5000"
+TRACKING_URI = os.getenv(
+    "MLFLOW_TRACKING_URI",
+    "http://127.0.0.1:5000",
+)
 EXPERIMENT_NAME = "FraudGuard-Fraud-Detection"
 REGISTERED_MODEL_NAME = "FraudGuardFraudDetector"
 
@@ -84,7 +87,11 @@ def git_output(*args: str) -> str:
             check=True,
         )
         return result.stdout.strip()
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    except (
+        subprocess.CalledProcessError,
+        FileNotFoundError,
+        PermissionError,
+    ):
         return "unknown"
 
 
@@ -123,28 +130,101 @@ def get_lineage() -> dict:
 # ---------------------------------------------------------------------
 
 def load_splits():
-    logger.info("Loading and joining IEEE-CIS data...")
+    """Load selected model features and create chronological splits."""
+    logger.info("Loading selected IEEE-CIS features...")
 
-    transaction_df, identity_df = load_data()
-    validate_join_key(transaction_df, identity_df)
+    transaction_path = ROOT / "data" / "raw" / "train_transaction.csv"
+    identity_path = ROOT / "data" / "raw" / "train_identity.csv"
+    feature_path = ROOT / "docs" / "validated_selected_features.csv"
 
-    df = join_data(transaction_df, identity_df)
-    df = df.sort_values(TIME_COLUMN).reset_index(drop=True)
+    feature_names = (
+        pd.read_csv(feature_path)["feature"].astype(str).tolist()
+    )
+
+    # Read CSV headers only to determine which table contains each feature.
+    transaction_columns = set(
+        pd.read_csv(transaction_path, nrows=0).columns
+    )
+    identity_columns = set(
+        pd.read_csv(identity_path, nrows=0).columns
+    )
+
+    required = set(feature_names) | {
+        "TransactionID",
+        TIME_COLUMN,
+        TARGET_COLUMN,
+    }
+
+    missing = required - transaction_columns - identity_columns
+    if missing:
+        raise ValueError(
+            f"Required training columns are missing: {sorted(missing)}"
+        )
+
+    # The join key, timestamp, and target must come from the transaction table.
+    transaction_required = {
+        "TransactionID",
+        TIME_COLUMN,
+        TARGET_COLUMN,
+    }
+
+    transaction_features = [
+        name for name in feature_names
+        if name in transaction_columns
+    ]
+    identity_features = [
+        name for name in feature_names
+        if name in identity_columns and name not in transaction_columns
+    ]
+
+    transaction_usecols = sorted(
+        transaction_required | set(transaction_features)
+    )
+    identity_usecols = sorted(
+        {"TransactionID"} | set(identity_features)
+    )
+
+    transaction_df = pd.read_csv(
+        transaction_path,
+        usecols=transaction_usecols,
+    )
+    identity_df = pd.read_csv(
+        identity_path,
+        usecols=identity_usecols,
+    )
+
+    if transaction_df["TransactionID"].duplicated().any():
+        raise ValueError("Duplicate TransactionIDs in transaction data.")
+
+    if identity_df["TransactionID"].duplicated().any():
+        raise ValueError("Duplicate TransactionIDs in identity data.")
+
+    df = transaction_df.merge(
+        identity_df,
+        on="TransactionID",
+        how="left",
+        validate="one_to_one",
+        sort=False,
+    )
+
+    del transaction_df, identity_df
+
+    df.sort_values(TIME_COLUMN, inplace=True, ignore_index=True)
 
     n = len(df)
     train_end = int(n * 0.70)
     valid_end = int(n * 0.85)
 
-    train_df = df.iloc[:train_end].copy()
-    valid_df = df.iloc[train_end:valid_end].copy()
-    test_df = df.iloc[valid_end:].copy()
+    # Slices retain the chronological ordering without copying the full rows.
+    train_df = df.iloc[:train_end]
+    valid_df = df.iloc[train_end:valid_end]
+    test_df = df.iloc[valid_end:]
 
     y_train = train_df[TARGET_COLUMN].astype(int)
     y_valid = valid_df[TARGET_COLUMN].astype(int)
     y_test = test_df[TARGET_COLUMN].astype(int)
 
-    # Fit the feature pipeline on training data only.
-    feature_pipeline = FeaturePipeline()
+    feature_pipeline = FeaturePipeline(feature_names=feature_names)
 
     X_train = feature_pipeline.fit_transform(train_df)
     X_valid = feature_pipeline.transform(valid_df)
@@ -152,15 +232,10 @@ def load_splits():
 
     logger.info(
         "Split sizes: train=%s, validation=%s, test=%s",
-        len(train_df),
-        len(valid_df),
-        len(test_df),
+        len(train_df), len(valid_df), len(test_df),
     )
     logger.info("Selected feature count: %s", X_train.shape[1])
-    logger.info(
-        "Training fraud prevalence: %.5f",
-        y_train.mean(),
-    )
+    logger.info("Training fraud prevalence: %.5f", y_train.mean())
 
     return {
         "train_df": train_df,
@@ -174,7 +249,6 @@ def load_splits():
         "X_test": X_test,
         "feature_pipeline": feature_pipeline,
     }
-
 
 # ---------------------------------------------------------------------
 # Preprocessing for non-LightGBM models
@@ -687,6 +761,7 @@ def train_experiment(
                 "lightgbm.basic.Booster",
                 "lightgbm.sklearn.LGBMClassifier",
                 "sklearn.tree._tree.Tree",
+                "sklearn.compose._column_transformer._RemainderColsList",
             ],
         )
 
@@ -721,6 +796,7 @@ def evaluate_winner(
     winner: dict,
     data: dict,
     lineage: dict,
+    register_model: bool = True,
 ) -> dict:
     run_id = winner["run_id"]
 
@@ -764,6 +840,45 @@ def evaluate_winner(
             temp_dir,
             artifact_path="test_artifacts",
         )
+
+        # Airflow evaluates candidates before allowing promotion.
+    # Candidate-only mode must never change the champion alias.
+    if not register_model:
+        summary = {
+            "experiment_name": EXPERIMENT_NAME,
+            "registered_model_name": REGISTERED_MODEL_NAME,
+            "registered_model_version": None,
+            "registered_model_alias": None,
+            "candidate_only": True,
+            "winning_model": winner["model_name"],
+            "winning_run_id": run_id,
+            "validation_average_precision": (
+                winner["validation_average_precision"]
+            ),
+            "validation_recall_at_precision_target": (
+                winner["validation_recall_at_precision_target"]
+            ),
+            "decision_threshold": bundle.threshold,
+            "precision_target": PRECISION_TARGET,
+            "test_metrics": test_metrics,
+            "lineage": lineage,
+        }
+
+        summary_path = DOCS_DIR / "airflow_candidate_evaluation.json"
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
+        summary_path.write_text(
+            json.dumps(summary, indent=2),
+            encoding="utf-8",
+        )
+
+        logger.info(
+            "Candidate evaluated without registration. Test metrics: %s",
+            test_metrics,
+        )
+        logger.info("Candidate summary saved to %s", summary_path)
+
+        return summary
+
 
     # Register only the validation-selected model.
     registered = mlflow.register_model(
