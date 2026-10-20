@@ -1,5 +1,5 @@
 ﻿from datetime import timedelta
-
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 import pendulum
 from airflow import DAG
 from airflow.operators.empty import EmptyOperator
@@ -19,7 +19,7 @@ def choose_drift_path(**context):
 
 with DAG(
     dag_id="fraudguard_drift_monitor",
-    description="Scheduled drift-check placeholder for the Phase 8 implementation",
+    description="Detect feature drift and trigger gated retraining when drift is detected",
     start_date=pendulum.datetime(2026, 1, 1, tz="UTC"),
     schedule="0 3 * * 1",
     catchup=False,
@@ -42,10 +42,17 @@ with DAG(
         python_callable=choose_drift_path,
     )
 
-    retrain = PythonOperator(
-        task_id="conditional_retrain",
-        python_callable=pipeline.conditional_retrain,
-    )
+    retrain = TriggerDagRunOperator(
+    task_id="conditional_retrain",
+    trigger_dag_id="fraudguard_training_pipeline",
+    conf={
+        "trigger_reason": "drift_detected",
+        "drift_report": (
+            "{{ ti.xcom_pull(task_ids='drift_check')['report_path'] }}"
+        ),
+    },
+    wait_for_completion=False,
+)
 
     no_retraining = EmptyOperator(
         task_id="no_retraining_needed",

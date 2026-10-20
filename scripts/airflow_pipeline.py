@@ -371,12 +371,21 @@ def reject_candidate(candidate: dict, gate: dict) -> dict:
 
 
 def drift_check() -> dict:
-    # Phase 6 placeholder. Implement actual drift detection in Phase 8.
-    logger.info("Drift detection is a Phase 8 implementation.")
-    return {
-        "drift_detected": False,
-        "status": "stub",
-    }
+    """Run the real feature-drift detector for the latest request batch."""
+    from scripts.drift_detection import run_drift_check
+
+    result = run_drift_check()
+
+    logger.info(
+        "Drift check result: status=%s, detected=%s, "
+        "drifted_features=%s/%s",
+        result.get("status"),
+        result.get("drift_detected"),
+        result.get("drifted_feature_count"),
+        result.get("feature_count"),
+    )
+
+    return result
 
 
 def conditional_retrain() -> dict:

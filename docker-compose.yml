@@ -136,6 +136,7 @@ services:
       - ./dags:/opt/airflow/project/dags:ro
       - airflow-logs:/opt/airflow/logs
       - airflow-plugins:/opt/airflow/plugins
+      - ./monitoring:/opt/airflow/project/monitoring
     depends_on:
       airflow-postgres:
         condition: service_healthy
