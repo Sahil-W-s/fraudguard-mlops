@@ -10,7 +10,14 @@ import pandas as pd
 import shap
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from time import perf_counter
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    Counter,
+    Gauge,
+    Histogram,
+    generate_latest,
+)
 from starlette.responses import Response
 
 from src.api.schemas import (
@@ -20,10 +27,70 @@ from src.api.schemas import (
     ExplanationResponse,
     FeatureContribution,
 )
+from src.api.prediction_store import (
+    initialize_store,
+    record_prediction,
+    get_prediction_stats,
+)
 
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# HTTP request metrics
+HTTP_REQUESTS = Counter(
+    "fraudguard_http_requests_total",
+    "Total HTTP requests handled by the FraudGuard API.",
+    ["method", "endpoint", "status_code"],
+)
+
+HTTP_REQUEST_DURATION = Histogram(
+    "fraudguard_http_request_duration_seconds",
+    "HTTP request duration in seconds.",
+    ["method", "endpoint"],
+    buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0),
+)
+
+# Model inference latency
+INFERENCE_DURATION = Histogram(
+    "fraudguard_inference_duration_seconds",
+    "Model inference duration in seconds.",
+    ["operation"],
+    buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0),
+)
+
+# Prediction class distribution
+PREDICTIONS = Counter(
+    "fraudguard_predictions_total",
+    "Total successful predictions returned by the prediction endpoint.",
+    ["predicted_fraud"],
+)
+
+# Prediction monitoring and delayed-label evaluation
+PREDICTED_FRAUD_RATE = Gauge(
+    "fraudguard_predicted_fraud_rate",
+    "Fraction of all recorded predictions classified as fraud.",
+)
+
+LABELED_PREDICTIONS = Gauge(
+    "fraudguard_labeled_predictions",
+    "Number of predictions with an assigned ground-truth label.",
+)
+
+ACTUAL_FRAUD_RATE = Gauge(
+    "fraudguard_actual_fraud_rate",
+    "Fraction of labeled predictions whose ground-truth label is fraud.",
+)
+
+EVALUATION_PRECISION = Gauge(
+    "fraudguard_evaluation_precision",
+    "Precision over predictions with available ground-truth labels.",
+)
+
+EVALUATION_RECALL = Gauge(
+    "fraudguard_evaluation_recall",
+    "Recall over predictions with available ground-truth labels.",
+)
 
 TRACKING_URI = os.getenv(
     "MLFLOW_TRACKING_URI",
@@ -69,6 +136,13 @@ async def lifespan(app: FastAPI):
     app.state.model_error = None
 
     try:
+        initialize_store()
+        logger.info("Prediction store initialized.")
+    except Exception:
+        logger.exception("Prediction store initialization failed.")
+        raise
+
+    try:
         app.state.model = load_model()
         logger.info("Loaded registered model: %s", MODEL_URI)
 
@@ -97,6 +171,63 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+@app.middleware("http")
+async def observe_http_requests(request: Request, call_next):
+    # Avoid counting Prometheus scrapes as application traffic.
+    if request.url.path == "/metrics":
+        return await call_next(request)
+
+    start_time = perf_counter()
+    status_code = 500
+
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        return response
+    finally:
+        elapsed = perf_counter() - start_time
+
+        route = request.scope.get("route")
+        endpoint = getattr(route, "path", request.url.path)
+
+        HTTP_REQUESTS.labels(
+            method=request.method,
+            endpoint=endpoint,
+            status_code=str(status_code),
+        ).inc()
+
+        HTTP_REQUEST_DURATION.labels(
+            method=request.method,
+            endpoint=endpoint,
+        ).observe(elapsed)
+
+def refresh_evaluation_metrics() -> None:
+    stats = get_prediction_stats()
+
+    total = stats["total_predictions"]
+    labeled = stats["labeled_predictions"]
+    tp = stats["true_positives"]
+    fp = stats["false_positives"]
+    fn = stats["false_negatives"]
+
+    PREDICTED_FRAUD_RATE.set(
+        stats["predicted_fraud_count"] / total if total else 0
+    )
+
+    LABELED_PREDICTIONS.set(labeled)
+
+    ACTUAL_FRAUD_RATE.set(
+        stats["actual_fraud_count"] / labeled if labeled else 0
+    )
+
+    # Do not report precision or recall as zero when no labels exist.
+    EVALUATION_PRECISION.set(
+        tp / (tp + fp) if tp + fp else float("nan")
+    )
+
+    EVALUATION_RECALL.set(
+        tp / (tp + fn) if tp + fn else float("nan")
+    )
 
 def get_model(request: Request):
     model = request.app.state.model
@@ -113,8 +244,20 @@ def get_model(request: Request):
     return model
 
 
-def predict_one(model, row: pd.DataFrame):
-    probability = float(model.predict_proba(row)[0, 1])
+def predict_one(
+    model,
+    row: pd.DataFrame,
+    operation: str = "predict",
+):
+    start_time = perf_counter()
+
+    try:
+        probability = float(model.predict_proba(row)[0, 1])
+    finally:
+        INFERENCE_DURATION.labels(
+            operation=operation
+        ).observe(perf_counter() - start_time)
+
     threshold = float(model.threshold)
     prediction = int(probability >= threshold)
 
@@ -190,6 +333,24 @@ def predict(
             detail=f"Unable to process transaction features: {exc}",
         ) from exc
 
+    PREDICTIONS.labels(
+        predicted_fraud=str(prediction)
+    ).inc()
+
+    try:
+        record_prediction(
+            fraud_probability=probability,
+            predicted_fraud=prediction,
+            threshold=threshold,
+        )
+        refresh_evaluation_metrics()
+    except Exception:
+        logger.exception("Failed to persist prediction.")
+        raise HTTPException(
+            status_code=503,
+            detail="Prediction logging is temporarily unavailable.",
+        )
+
     return PredictionResponse(
         fraud_probability=probability,
         predicted_fraud=prediction,
@@ -219,7 +380,9 @@ def explain(
 
     try:
         probability, prediction, threshold = predict_one(
-            model, row
+            model,
+            row,
+            operation="explain",
         )
 
         transformed = model.feature_pipeline.transform(row)
@@ -286,6 +449,11 @@ def explain(
 
 @app.get("/metrics")
 def metrics():
+    try:
+        refresh_evaluation_metrics()
+    except Exception:
+        logger.exception("Failed to refresh evaluation metrics.")
+
     return Response(
         content=generate_latest(),
         media_type=CONTENT_TYPE_LATEST,

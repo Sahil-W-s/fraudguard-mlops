@@ -90,6 +90,8 @@ services:
       MLFLOW_MODEL_URI: "models:/FraudGuardFraudDetector@champion"
     ports:
       - "8000:8000"
+    volumes:
+      - ./data/monitoring:/app/data/monitoring
     depends_on:
       mlflow:
         condition: service_healthy
@@ -217,6 +219,9 @@ services:
       - "3000:3000"
     volumes:
       - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
       prometheus:
         condition: service_healthy

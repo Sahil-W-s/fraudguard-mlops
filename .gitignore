@@ -18,9 +18,12 @@ env/
 # MLflow local tracking data
 mlflow.db
 mlruns/
-
 models/
+
 # Local environment secrets
 .env
 .env.*
 !.env.example
+
+# Runtime monitoring data
+data/monitoring/
