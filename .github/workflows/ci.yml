@@ -43,31 +43,5 @@ jobs:
         run: python -m ruff check src tests dags scripts
 
       - name: Run tests
-        run:  |
-          python -X importtime -m pytest --collect-only -q 2> importtime.log
-          python - <<'PY'
-          import re
-
-          entries = []
-
-          with open("importtime.log", encoding="utf-8") as file:
-              for line in file:
-                  match = re.search(
-                      r"import time:\s+(\d+)\s+\|\s+(\d+)\s+\|\s+(.+)",
-                      line,
-                  )
-                  if match:
-                      self_time = int(match.group(1))
-                      cumulative_time = int(match.group(2))
-                      module = match.group(3).strip()
-                      entries.append((cumulative_time, self_time, module))
-
-          print("\nTop imports by cumulative time:")
-          for cumulative, self_time, module in sorted(
-              entries, reverse=True
-          )[:25]:
-              print(
-                  f"{cumulative / 1_000_000:8.3f}s cumulative | "
-                  f"{self_time / 1_000_000:8.3f}s self | {module}"
-              )
-          PY
+        run: |
+          python -m pytest --collect-only -vv -s --durations=25
