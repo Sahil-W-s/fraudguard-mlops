@@ -42,6 +42,28 @@ jobs:
       - name: Run Ruff
         run: python -m ruff check src tests dags scripts
 
-      - name: Run tests
+      - name: Profile collection by test file
         run: |
-          python -m pytest --collect-only -vv -s --durations=25
+          python - <<'PY'
+          import time
+          import pytest
+
+          class CollectionProfiler:
+              @pytest.hookimpl(hookwrapper=True)
+              def pytest_collect_file(self, file_path, parent):
+                  started = time.perf_counter()
+                  yield
+                  elapsed = time.perf_counter() - started
+
+                  if file_path.suffix == ".py" and "test" in file_path.name:
+                      print(
+                          f"\nCOLLECTION TIME: {elapsed:.2f}s "
+                          f"| {file_path}",
+                          flush=True,
+                      )
+
+          pytest.main(
+              ["--collect-only", "-q", "tests"],
+              plugins=[CollectionProfiler()],
+          )
+          PY
