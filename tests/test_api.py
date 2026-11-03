@@ -2,6 +2,9 @@
 import numpy as np
 import pytest
 
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+
 from fastapi.testclient import TestClient
 from src.api.schemas import NUMERIC_FEATURES, CATEGORICAL_FEATURES
 from src.api.main import app
@@ -30,13 +33,21 @@ class FakeModel:
         return np.array([[0.35, 0.65]])
 
 
+
 @pytest.fixture
 def client():
-    with TestClient(app, raise_server_exceptions=False) as test_client:
+    @asynccontextmanager
+    async def test_lifespan(app: FastAPI):
         app.state.model = FakeModel()
         app.state.explainer = None
         app.state.model_error = None
+        yield
+
+    app.router.lifespan_context = test_lifespan
+
+    with TestClient(app, raise_server_exceptions=False) as test_client:
         yield test_client
+
 
 
 def valid_payload():

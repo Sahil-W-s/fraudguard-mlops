@@ -42,25 +42,5 @@ jobs:
       - name: Run Ruff
         run: python -m ruff check src tests dags scripts
 
-      - name: Profile test module imports
-        run: |
-          python - <<'PY'
-          import importlib.util
-          import time
-          from pathlib import Path
-
-          files = sorted(Path("tests").rglob("test_*.py"))
-
-          for file in files:
-              started = time.perf_counter()
-
-              spec = importlib.util.spec_from_file_location(
-                  f"profile_{file.stem}",
-                  file,
-              )
-              module = importlib.util.module_from_spec(spec)
-              spec.loader.exec_module(module)
-
-              elapsed = time.perf_counter() - started
-              print(f"IMPORT TIME: {elapsed:.2f}s | {file}", flush=True)
-          PY
+      - name: Run tests
+        run: pytest -q
