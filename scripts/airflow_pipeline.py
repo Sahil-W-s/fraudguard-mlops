@@ -2,14 +2,12 @@ from __future__ import annotations
 import math
 import logging
 import os
-from pathlib import Path
 
 import mlflow
 import mlflow.sklearn
 from mlflow import MlflowClient
 from sklearn.metrics import average_precision_score
 
-from src.ingestion.load_data import main as ingest_main
 from src.validation.validate_data import main as validate_main
 
 from scripts import run_experiments as experiments
@@ -226,7 +224,6 @@ def quality_gate(candidate: dict) -> dict:
 
 def register_candidate(candidate: dict, gate: dict) -> dict:
     """Register and promote a candidate only after a valid quality gate."""
-    import math
 
     # Validate candidate metadata.
     if not isinstance(candidate, dict) or not candidate.get("run_id"):

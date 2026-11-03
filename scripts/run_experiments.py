@@ -6,7 +6,6 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-import joblib
 import lightgbm as lgb
 import matplotlib
 
@@ -42,7 +41,6 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from src.features.build_features import TARGET_COLUMN, TIME_COLUMN
 from src.features.feature_pipeline import FeaturePipeline
 from src.inference.model_bundle import FraudModelBundle
-from src.ingestion.load_data import load_data, join_data, validate_join_key
 
 
 # ---------------------------------------------------------------------

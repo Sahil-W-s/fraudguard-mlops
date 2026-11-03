@@ -10,7 +10,6 @@ from src.ingestion.load_data import (
 )
 from src.features.build_features import (
     TARGET_COLUMN,
-    ID_COLUMNS,
     TIME_COLUMN,
     identify_feature_columns,
 )

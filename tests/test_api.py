@@ -1,10 +1,9 @@
 
 import numpy as np
-import pandas as pd
 import pytest
 
 from fastapi.testclient import TestClient
-
+from src.api.schemas import NUMERIC_FEATURES, CATEGORICAL_FEATURES
 from src.api.main import app
 from src.api.schemas import FEATURE_NAMES
 
@@ -38,14 +37,6 @@ def client():
         app.state.explainer = None
         app.state.model_error = None
         yield test_client
-
-
-def valid_payload():
-    from src.api.schemas import (
-    FEATURE_NAMES,
-    NUMERIC_FEATURES,
-    CATEGORICAL_FEATURES,
-)
 
 
 def valid_payload():
@@ -111,10 +102,6 @@ def test_health_returns_503_without_model(client):
     response = client.get("/health")
 
     assert response.status_code == 503
-
-
-from src.api.schemas import NUMERIC_FEATURES, CATEGORICAL_FEATURES
-
 
 def test_invalid_numeric_string_returns_422(client):
     payload = valid_payload()

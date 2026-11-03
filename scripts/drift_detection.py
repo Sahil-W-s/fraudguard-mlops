@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import argparse
 import html
@@ -114,8 +114,6 @@ def generate_demo_batch(
     reference: pd.DataFrame,
     feature_names: list[str],
 ) -> Path:
-    """Generate a synthetic batch with deliberately widespread numeric drift."""
-    rng = np.random.default_rng(42)
 
     sample_size = min(max(MIN_ROWS, 500), len(reference))
     demo = reference[feature_names].sample(

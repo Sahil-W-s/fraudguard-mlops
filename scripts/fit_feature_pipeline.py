@@ -5,7 +5,7 @@ from src.ingestion.load_data import (
     validate_join_key,
     join_data,
 )
-from src.features.build_features import TIME_COLUMN, TARGET_COLUMN
+from src.features.build_features import TIME_COLUMN
 from src.features.feature_pipeline import FeaturePipeline
 
 

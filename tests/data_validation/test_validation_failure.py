@@ -10,7 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 # Make src importable
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.validation.validate_data import main
+from src.validation.validate_data import main  # noqa: E402
 
 
 RAW_TRANSACTION = (

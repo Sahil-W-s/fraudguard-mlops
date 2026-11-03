@@ -93,7 +93,6 @@ def _validate_dataset(
     null_counts = {}
     seen_ids = set()
     fraud_count = 0
-    min_transaction_amount = None
     schema_checked = False
 
     for chunk in pd.read_csv(path, chunksize=CHUNK_SIZE):

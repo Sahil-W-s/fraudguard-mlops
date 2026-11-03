@@ -4,7 +4,6 @@ import pytest
 from src.features.build_features import (
     TARGET_COLUMN,
     ID_COLUMNS,
-    TIME_COLUMN,
     build_feature_inventory,
     calculate_missingness,
     get_candidate_features,

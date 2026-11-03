@@ -3,7 +3,6 @@ from pathlib import Path
 
 import joblib
 import lightgbm as lgb
-import pandas as pd
 from sklearn.metrics import (
     average_precision_score,
     log_loss,
