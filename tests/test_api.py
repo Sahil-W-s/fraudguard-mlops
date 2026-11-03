@@ -2,13 +2,15 @@
 import numpy as np
 import pytest
 
-from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from fastapi.testclient import TestClient
 from src.api.schemas import NUMERIC_FEATURES, CATEGORICAL_FEATURES
 from src.api.main import app
 from src.api.schemas import FEATURE_NAMES
+from contextlib import asynccontextmanager
+
+from src.api import prediction_store
 
 
 class FakePipeline:
@@ -35,7 +37,12 @@ class FakeModel:
 
 
 @pytest.fixture
-def client():
+def client(tmp_path, monkeypatch):
+    test_db = tmp_path / "predictions.db"
+
+    monkeypatch.setattr(prediction_store, "DB_PATH", test_db)
+    prediction_store.initialize_store()
+
     @asynccontextmanager
     async def test_lifespan(app: FastAPI):
         app.state.model = FakeModel()
@@ -47,7 +54,6 @@ def client():
 
     with TestClient(app, raise_server_exceptions=False) as test_client:
         yield test_client
-
 
 
 def valid_payload():
